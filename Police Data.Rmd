@@ -1,0 +1,175 @@
+---
+title: "Police Data"
+date: "2022-01-28"
+output: html_document
+---
+
+<br />
+
+## Set up the environment.
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load_packages, message=FALSE, warning=FALSE}
+# Load packages.
+library(tidyverse)
+library(lubridate)
+```
+
+<br />
+
+## The Data
+
+We're going to get NYPD case data covering the years from 2006 through 2020 and look at the distribution of cases by borough and over time. Questions to investigate include whether case counts vary over time and/or by borough.
+
+<br />
+
+## Get the data, view summary.
+```{r get_data, message=FALSE}
+# Get the data.
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+police_data <- read_csv(url_in)
+
+# View a summary of the data.
+summary(police_data)
+```
+
+
+<br />
+
+## Do some basic cleaning of the data.
+```{r clean_data_1, message=FALSE}
+police_data <- police_data %>%
+  # First, remove columns that are not needed.
+  select(
+    -c(
+      INCIDENT_KEY,
+      PRECINCT,
+      JURISDICTION_CODE,
+      LOCATION_DESC,
+      STATISTICAL_MURDER_FLAG,
+      X_COORD_CD,
+      Y_COORD_CD,
+      Lon_Lat,
+      PERP_AGE_GROUP,
+      PERP_RACE,
+      PERP_SEX,
+      VIC_AGE_GROUP,
+      VIC_RACE,
+      VIC_SEX,
+    )
+  ) %>%
+  # Then fix the data types where necessary.
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+
+# View a summary of the cleaned data.
+summary(police_data)
+```
+
+<br />
+
+## Visualize the distribution of cases.
+### Cases by Year
+```{r cases_by_year, message=FALSE}
+# First, let's look at cases by year.
+incident_count_by_year <- police_data %>%
+  # To keep the year as a date object, set the day of each case to the first of the year.
+  mutate(cases = 1, year = lubridate::ymd(format(OCCUR_DATE, format="%Y-01-01")))%>%
+  group_by(year) %>%
+  summarize(cases = sum(cases))
+
+# Show the cases by year in a chart.
+incident_count_by_year %>%
+  ggplot(aes(x = year, y = cases)) +
+  geom_line(aes(group=1)) + 
+  geom_point(color="black", size=3) +
+  ylim(0, NA) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year") + 
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90)) +
+  labs(title = "Case Counts By Year", x = NULL, y = "Cases")
+```
+
+<br />
+
+### Cases by Month
+```{r cases_by_month, message=FALSE}
+# Next, let's look at cases by month.
+incident_count_by_month <- police_data %>%
+  # To keep the month as a date object, set the day of each case to the first of the month.
+  mutate(cases = 1, month = lubridate::ymd(format(OCCUR_DATE, format="%Y-%m-01"))) %>%
+  group_by(month) %>%
+  summarize(cases = sum(cases))
+
+# Show the cases by month in a chart.
+incident_count_by_month %>%
+  ggplot(aes(x = month, y = cases)) +
+  geom_line(aes(group=1)) + 
+  geom_point(color="black", size=3) +
+  ylim(0, NA) +
+  scale_x_date(date_labels = "%Y-%m", date_breaks = "1 year") + 
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90)) +
+  labs(title = "Case Counts By Month", x = NULL, y = "Cases")
+```
+
+<br />
+<b>Questions to consider</b>:
+ <li>What could explain the slow decline in cases?</li>
+ <li>What could explain the sudden spike in cases -- was it simply the pandemic?</li>
+ <li>How reliable and complete is this data?</li>
+<br />
+
+<br />
+
+### Cases by Borough
+```{r cases_by_boro, message=FALSE}
+# Let's look at cases by borough.
+# Show the cases by borough in a chart.
+police_data %>%
+  ggplot(aes(x = BORO)) +
+  geom_bar() + 
+  ylim(0, NA) +
+  labs(title = "Case Counts By Borough", y = "Cases")
+```
+
+<br />
+
+### Cases by Borough, Normalized by Population (in 2015)
+```{r cases_by_boro_normalized, message=FALSE}
+# Finally, let's normalize the case by borough data.
+# Show cases per thousand people by borough
+cases_per_thousand_by_boro <- police_data %>%
+  mutate(cases = 1) %>%
+  group_by(BORO) %>%
+  summarize(cases = sum(cases)) %>%
+  mutate(
+    population_in_2015 =
+      case_when(
+        BORO == "BRONX" ~ 1428000,
+        BORO == "BROOKLYN" ~ 2595000,
+        BORO == "MANHATTAN" ~ 1630000,
+        BORO == "QUEENS" ~ 2301000,
+        BORO == "STATEN ISLAND" ~ 472481
+      )
+  ) %>%
+  summarize(BORO, cases_per_thousand = 1000 * cases / population_in_2015)
+
+cases_per_thousand_by_boro %>%
+  ggplot(aes(x = BORO, y = cases_per_thousand)) +
+  geom_col() + 
+  ylim(0, NA) +
+  labs(title = "Cases Per Thousand By Borough, Normalized", y = "Cases")
+
+```
+
+## Conclusions
+Case data varied quite a bit over the 15 years from 2006 through 2020. With the exception of the first year of the pandemic, where cases were unusually high, there was an overall downward trend in cases from year to year, possibly coinciding with presidential terms... The monthly chart also shows a clear seasonal trend with more cases appearing in the summer months.
+<br />
+<br />
+Case data also varied by borough, even after normalizing for population. While the Bronx and Manhattan have similar population sizes, the Bronx has more than twice the number of cases per 1,000 people. Brooklyn and the Bronx both come in around 4 cases per 1,000 people whereas the other three boroughs are all under 2 cases per 1,000 people.
+
+## Potential Biases
+The original data had several other fields that could have been used in this analysis, but I personally felt these (cases over time and by borough) were the most interesting and straightforward to look at, so I left out things like the race and age of the parties involved.
+<br />
+<br />
+Also, I somewhat arbitrarily chose 2015 as the year to use for population data when normalizing the cases by borough, definitely biasing the results toward the values for that specific year. A more complete way to do this might have been to take the average yearly population for each borough over the period of time included in the case data (2006-2020)
